@@ -1,0 +1,14 @@
+{
+    "name": "@posthog/redshift-plugin",
+    "private": true,
+    "version": "0.0.1",
+    "description": "Export PostHog events to Amazon Redshift on ingestion.",
+    "devDependencies": {
+        "@posthog/plugin-contrib": "^0.0.3",
+        "@posthog/plugin-scaffold": "^0.7.1",
+        "pg": "^8.0.0"
+    },
+    "dependencies": {
+        "@types/pg": "^7.14.11"
+    }
+}
