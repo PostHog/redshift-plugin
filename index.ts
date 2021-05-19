@@ -1,11 +1,10 @@
 import { createBuffer } from '@posthog/plugin-contrib'
-import { Plugin, PluginMeta, PluginEvent, PluginJobs } from '@posthog/plugin-scaffold'
-import { Pool } from 'pg'
-
+import { Plugin, PluginMeta, PluginJobs, PluginEvent } from '@posthog/plugin-scaffold'
+import { Client } from 'pg' 
 
 type RedshiftMeta = PluginMeta<{
     global: {
-        pgPool: Pool
+        pgClient: Client
         buffer: ReturnType<typeof createBuffer>
         eventsToIgnore: Set<string>
         sanitizedTableName: string
@@ -25,19 +24,35 @@ type RedshiftMeta = PluginMeta<{
 
 type RedshiftPlugin = Plugin<RedshiftMeta>
 
+interface ParsedEvent {
+    uuid: string
+    eventName: string
+    properties: string
+    elements: string
+    set: string
+    set_once: string
+    distinct_id: string
+    team_id: number
+    ip: string
+    site_url: string
+    timestamp: string
+}
+
+type InsertQueryValue = string | number
+
 interface UploadJobPayload {
-    batch: PluginEvent[]
+    batch: ParsedEvent[]
     batchId: number
     retriesPerformedSoFar: number
 }
 
 export const jobs: PluginJobs<RedshiftMeta> = {
     uploadBatchToRedshift: async (payload: UploadJobPayload, meta: RedshiftMeta) => {
-        // insertBatchIntoRedshift(payload, meta)
+        insertBatchIntoRedshift(payload, meta)
     },
 }
 
-export const setupPlugin: RedshiftPlugin['setupPlugin'] = (meta) => {
+export const setupPlugin: RedshiftPlugin['setupPlugin'] = async (meta) => {
     const { global, config } = meta
 
     // Max Redshift insert is 16 MB: https://docs.aws.amazon.com/redshift/latest/dg/c_redshift-sql.html
@@ -53,16 +68,7 @@ export const setupPlugin: RedshiftPlugin['setupPlugin'] = (meta) => {
 
     global.sanitizedTableName = sanitizeSqlIdentifier(config.tableName)
 
-    global.pgPool = new Pool({
-        user: config.dbUsername,
-        password: config.dbPassword,
-        host: config.clusterHost,
-        database: config.dbName,
-        port: parseInt(config.clusterPort),
-        max: 2
-    })
-
-    global.pgPool.query(
+    await executeQuery(
         `CREATE TABLE IF NOT EXISTS public.${global.sanitizedTableName} (
             uuid character varying(200),
             event character varying(200),
@@ -70,25 +76,26 @@ export const setupPlugin: RedshiftPlugin['setupPlugin'] = (meta) => {
             elements varchar,
             set varchar,
             set_once varchar,
-            "timestamp" timestamp with time zone,
+            timestamp timestamp with time zone,
             team_id integer,
             distinct_id character varying(200),
             ip character varying(50),
-            created_at timestamp with time zone,
             site_url character varying(200)
-        );`, 
-        (err: Error) => {
+        );`,
+        [],
+        async (err: Error) => {
             if (err) {
                 throw new Error(`Unable to connect to Redshift cluster with error: ${err}`)
             }
-        }
+        },
+        config
     )
 
     global.buffer = createBuffer({
         limit: uploadMegabytes * 1024 * 1024,
-        timeoutSeconds: uploadMinutes * 60,
+        timeoutSeconds: uploadMinutes, // here
         onFlush: async (batch) => {
-            sendBatchToRedshift({ batch, batchId: Math.floor(Math.random() * 1000000), retriesPerformedSoFar: 0 }, meta)
+            insertBatchIntoRedshift({ batch, batchId: Math.floor(Math.random() * 1000000), retriesPerformedSoFar: 0 }, meta)
         },
     })
 
@@ -99,11 +106,7 @@ export const setupPlugin: RedshiftPlugin['setupPlugin'] = (meta) => {
 }
 
 
-
 export async function onEvent(event: PluginEvent, { global }: RedshiftMeta) {
-    if (!global.pgPool) {
-        throw new Error('Plugin is not connected to Redshift cluster!')
-    }
 
     const {
         event: eventName,
@@ -151,14 +154,67 @@ export async function onEvent(event: PluginEvent, { global }: RedshiftMeta) {
 }
 
 
-export const sendBatchToRedshift = async (payload: UploadJobPayload, { global, jobs }: RedshiftMeta) => {
-    global.pgPool.query(
-        `INSERT INTO ${global.sanitizedTableName} (uuid, event, properties, elements, set, set_once, timestamp,team_id, distinct_id, ip, created_at, site_url)
-        VALUES
-        ()`
+
+export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { global, jobs, config }: RedshiftMeta) => {
+    let values: InsertQueryValue[] = []
+    let valuesString = ''
+    for (let i = 1; i <= payload.batch.length; ++i) {
+        const { uuid, eventName, properties, elements, set, set_once, timestamp, team_id, distinct_id, ip, site_url } = payload.batch[i-1]
+        valuesString += ` ($${i*1}, $${i*2}, $${i*3}, $${i*4}, $${i*5}, $${i*6}, $${i*7}, $${i*8}, $${i*9}, $${i*10}, $${i*11}),`
+        values = [...values, ...[uuid, eventName, properties, elements, set, set_once, timestamp, team_id, distinct_id, ip, site_url]]
+    }
+    console.log(`Flushing ${payload.batch.length} events!`)
+    console.log(`INSERT INTO ${global.sanitizedTableName} (uuid, event, properties, elements, set, set_once, timestamp, team_id, distinct_id, ip, site_url)
+    VALUES ${valuesString}`)
+    console.log(values)
+    await executeQuery(
+        `INSERT INTO ${global.sanitizedTableName} (uuid, event, properties, elements, set, set_once, timestamp, team_id, distinct_id, ip, site_url)
+        VALUES ${valuesString}`,
+        values,
+        async (err: Error) => {
+            if (err) {
+                console.error(`Error uploading to Redshift: ${err.message}`)
+                if (payload.retriesPerformedSoFar >= 15) {
+                    return
+                }
+                const nextRetryMs = 2 ** payload.retriesPerformedSoFar * 3000
+                console.log(`Enqueued batch ${payload.batchId} for retry in ${nextRetryMs}ms`)
+                await jobs
+                .uploadBatchToRedshift({
+                    ...payload,
+                    retriesPerformedSoFar: payload.retriesPerformedSoFar + 1,
+                })
+                .runIn(nextRetryMs, 'milliseconds')
+            }
+        },
+        config
     )
+
 }
 
 const sanitizeSqlIdentifier = (unquotedIdentifier: string): string => {
     return unquotedIdentifier.replace(/[^\w\d_]+/g, '')
 }
+
+
+const executeQuery = async (query: string, values: any[], callback: (err: Error) => void, config: RedshiftMeta['config']) => {
+    const pgClient = new Client({
+        user: config.dbUsername,
+        password: config.dbPassword,
+        host: config.clusterHost,
+        database: config.dbName,
+        port: parseInt(config.clusterPort),
+    })
+    await pgClient.connect()
+    pgClient.query(
+        query,
+        values,
+        async (err: Error) => {
+            await pgClient.end()
+            callback(err)
+        }
+    )
+}
+/* export const teardownPlugin: RedshiftPlugin['teardownPlugin'] = async ({ global }) => {
+    await global.pgClient.end()
+} */
