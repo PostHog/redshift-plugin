@@ -1,6 +1,6 @@
 import { createBuffer } from '@posthog/plugin-contrib'
 import { Plugin, PluginMeta, PluginJobs, PluginEvent } from '@posthog/plugin-scaffold'
-import { Client } from 'pg' 
+import { Client } from 'pg'
 
 type RedshiftMeta = PluginMeta<{
     global: {
@@ -95,19 +95,19 @@ export const setupPlugin: RedshiftPlugin['setupPlugin'] = async (meta) => {
         limit: uploadMegabytes * 1024 * 1024,
         timeoutSeconds: uploadMinutes, // here
         onFlush: async (batch) => {
-            await insertBatchIntoRedshift({ batch, batchId: Math.floor(Math.random() * 1000000), retriesPerformedSoFar: 0 }, meta)
+            await insertBatchIntoRedshift(
+                { batch, batchId: Math.floor(Math.random() * 1000000), retriesPerformedSoFar: 0 },
+                meta
+            )
         },
     })
 
     global.eventsToIgnore = new Set(
         config.eventsToIgnore ? config.eventsToIgnore.split(',').map((event) => event.trim()) : null
     )
-
 }
 
-
 export async function onEvent(event: PluginEvent, { global }: RedshiftMeta) {
-
     const {
         event: eventName,
         properties,
@@ -145,7 +145,7 @@ export async function onEvent(event: PluginEvent, { global }: RedshiftMeta) {
         team_id,
         ip,
         site_url,
-        timestamp: new Date(timestamp).toISOString()
+        timestamp: new Date(timestamp).toISOString(),
     }
 
     if (!global.eventsToIgnore.has(eventName)) {
@@ -153,15 +153,19 @@ export async function onEvent(event: PluginEvent, { global }: RedshiftMeta) {
     }
 }
 
-
-
 export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { global, jobs, config }: RedshiftMeta) => {
     let values: InsertQueryValue[] = []
     let valuesString = ''
     for (let i = 1; i <= payload.batch.length; ++i) {
-        const { uuid, eventName, properties, elements, set, set_once, distinct_id, team_id, ip, site_url, timestamp } = payload.batch[i-1]
-        valuesString += ` ($${i*1}, $${i*2}, $${i*3}, $${i*4}, $${i*5}, $${i*6}, $${i*7}, $${i*8}, $${i*9}, $${i*10}, $${i*11})${i === payload.batch.length ? '' : ','}`
-        values = [...values, ...[uuid, eventName, properties, elements, set, set_once, distinct_id, team_id, ip, site_url, timestamp]]
+        const { uuid, eventName, properties, elements, set, set_once, distinct_id, team_id, ip, site_url, timestamp } =
+            payload.batch[i - 1]
+        valuesString += ` ($${i * 1}, $${i * 2}, $${i * 3}, $${i * 4}, $${i * 5}, $${i * 6}, $${i * 7}, $${i * 8}, $${
+            i * 9
+        }, $${i * 10}, $${i * 11})${i === payload.batch.length ? '' : ','}`
+        values = [
+            ...values,
+            ...[uuid, eventName, properties, elements, set, set_once, distinct_id, team_id, ip, site_url, timestamp],
+        ]
     }
 
     await executeQuery(
@@ -176,23 +180,28 @@ export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { globa
                 }
                 const nextRetryMs = 2 ** payload.retriesPerformedSoFar * 3000
                 console.log(`Enqueued batch ${payload.batchId} for retry in ${nextRetryMs}ms`)
-                await jobs.uploadBatchToRedshift({
-                    ...payload,
-                    retriesPerformedSoFar: payload.retriesPerformedSoFar + 1,
-                }).runIn(nextRetryMs, 'milliseconds')
+                await jobs
+                    .uploadBatchToRedshift({
+                        ...payload,
+                        retriesPerformedSoFar: payload.retriesPerformedSoFar + 1,
+                    })
+                    .runIn(nextRetryMs, 'milliseconds')
             }
         },
         config
     )
-
 }
 
 const sanitizeSqlIdentifier = (unquotedIdentifier: string): string => {
     return unquotedIdentifier.replace(/[^\w\d_]+/g, '')
 }
 
-
-const executeQuery = async (query: string, values: any[], callback: (err: Error | null) => Promise<void>, config: RedshiftMeta['config']) => {
+const executeQuery = async (
+    query: string,
+    values: any[],
+    callback: (err: Error | null) => Promise<void>,
+    config: RedshiftMeta['config']
+) => {
     const pgClient = new Client({
         user: config.dbUsername,
         password: config.dbPassword,
@@ -210,5 +219,4 @@ const executeQuery = async (query: string, values: any[], callback: (err: Error 
         await callback(err)
     }
     await pgClient.end()
-
 }
