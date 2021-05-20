@@ -48,7 +48,7 @@ interface UploadJobPayload {
 
 export const jobs: PluginJobs<RedshiftMeta> = {
     uploadBatchToRedshift: async (payload: UploadJobPayload, meta: RedshiftMeta) => {
-        insertBatchIntoRedshift(payload, meta)
+        await insertBatchIntoRedshift(payload, meta)
     },
 }
 
@@ -70,20 +70,20 @@ export const setupPlugin: RedshiftPlugin['setupPlugin'] = async (meta) => {
 
     await executeQuery(
         `CREATE TABLE IF NOT EXISTS public.${global.sanitizedTableName} (
-            uuid character varying(200),
-            event character varying(200),
-            properties varchar,
-            elements varchar,
-            set varchar,
-            set_once varchar,
+            uuid varchar(200),
+            event varchar(200),
+            properties varchar(65535),
+            elements varchar(65535),
+            set varchar(65535),
+            set_once varchar(65535),
             timestamp timestamp with time zone,
-            team_id integer,
-            distinct_id character varying(200),
-            ip character varying(50),
-            site_url character varying(200)
+            team_id int,
+            distinct_id varchar(200),
+            ip varchar(200),
+            site_url varchar(200)
         );`,
         [],
-        async (err: Error) => {
+        async (err: Error | null) => {
             if (err) {
                 throw new Error(`Unable to connect to Redshift cluster with error: ${err}`)
             }
@@ -95,7 +95,7 @@ export const setupPlugin: RedshiftPlugin['setupPlugin'] = async (meta) => {
         limit: uploadMegabytes * 1024 * 1024,
         timeoutSeconds: uploadMinutes, // here
         onFlush: async (batch) => {
-            insertBatchIntoRedshift({ batch, batchId: Math.floor(Math.random() * 1000000), retriesPerformedSoFar: 0 }, meta)
+            await insertBatchIntoRedshift({ batch, batchId: Math.floor(Math.random() * 1000000), retriesPerformedSoFar: 0 }, meta)
         },
     })
 
@@ -145,7 +145,7 @@ export async function onEvent(event: PluginEvent, { global }: RedshiftMeta) {
         team_id,
         ip,
         site_url,
-        timestamp: timestamp
+        timestamp: new Date(timestamp).toISOString()
     }
 
     if (!global.eventsToIgnore.has(eventName)) {
@@ -159,32 +159,27 @@ export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { globa
     let values: InsertQueryValue[] = []
     let valuesString = ''
     for (let i = 1; i <= payload.batch.length; ++i) {
-        const { uuid, eventName, properties, elements, set, set_once, timestamp, team_id, distinct_id, ip, site_url } = payload.batch[i-1]
-        valuesString += ` ($${i*1}, $${i*2}, $${i*3}, $${i*4}, $${i*5}, $${i*6}, $${i*7}, $${i*8}, $${i*9}, $${i*10}, $${i*11}),`
-        values = [...values, ...[uuid, eventName, properties, elements, set, set_once, timestamp, team_id, distinct_id, ip, site_url]]
+        const { uuid, eventName, properties, elements, set, set_once, distinct_id, team_id, ip, site_url, timestamp } = payload.batch[i-1]
+        valuesString += ` ($${i*1}, $${i*2}, $${i*3}, $${i*4}, $${i*5}, $${i*6}, $${i*7}, $${i*8}, $${i*9}, $${i*10}, $${i*11})${i === payload.batch.length ? '' : ','}`
+        values = [...values, ...[uuid, eventName, properties, elements, set, set_once, distinct_id, team_id, ip, site_url, timestamp]]
     }
-    console.log(`Flushing ${payload.batch.length} events!`)
-    console.log(`INSERT INTO ${global.sanitizedTableName} (uuid, event, properties, elements, set, set_once, timestamp, team_id, distinct_id, ip, site_url)
-    VALUES ${valuesString}`)
-    console.log(values)
+
     await executeQuery(
-        `INSERT INTO ${global.sanitizedTableName} (uuid, event, properties, elements, set, set_once, timestamp, team_id, distinct_id, ip, site_url)
+        `INSERT INTO ${global.sanitizedTableName} (uuid, event, properties, elements, set, set_once, distinct_id, team_id, ip, site_url, timestamp)
         VALUES ${valuesString}`,
         values,
-        async (err: Error) => {
+        async (err: Error | null) => {
             if (err) {
-                console.error(`Error uploading to Redshift: ${err.message}`)
+                console.error(`(Batch Id: ${payload.batchId}) Error uploading to Redshift: ${err.message}`)
                 if (payload.retriesPerformedSoFar >= 15) {
                     return
                 }
                 const nextRetryMs = 2 ** payload.retriesPerformedSoFar * 3000
                 console.log(`Enqueued batch ${payload.batchId} for retry in ${nextRetryMs}ms`)
-                await jobs
-                .uploadBatchToRedshift({
+                await jobs.uploadBatchToRedshift({
                     ...payload,
                     retriesPerformedSoFar: payload.retriesPerformedSoFar + 1,
-                })
-                .runIn(nextRetryMs, 'milliseconds')
+                }).runIn(nextRetryMs, 'milliseconds')
             }
         },
         config
@@ -197,7 +192,7 @@ const sanitizeSqlIdentifier = (unquotedIdentifier: string): string => {
 }
 
 
-const executeQuery = async (query: string, values: any[], callback: (err: Error) => void, config: RedshiftMeta['config']) => {
+const executeQuery = async (query: string, values: any[], callback: (err: Error | null) => Promise<void>, config: RedshiftMeta['config']) => {
     const pgClient = new Client({
         user: config.dbUsername,
         password: config.dbPassword,
@@ -205,16 +200,15 @@ const executeQuery = async (query: string, values: any[], callback: (err: Error)
         database: config.dbName,
         port: parseInt(config.clusterPort),
     })
+    const q = query.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))
+    console.log(q)
     await pgClient.connect()
-    pgClient.query(
-        query,
-        values,
-        async (err: Error) => {
-            await pgClient.end()
-            callback(err)
-        }
-    )
+    try {
+        await pgClient.query(query, values)
+        await callback(null)
+    } catch (err) {
+        await callback(err)
+    }
+    await pgClient.end()
+
 }
-/* export const teardownPlugin: RedshiftPlugin['teardownPlugin'] = async ({ global }) => {
-    await global.pgClient.end()
-} */
