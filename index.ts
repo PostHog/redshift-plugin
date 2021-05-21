@@ -161,17 +161,19 @@ export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { globa
             payload.batch[i]
         valuesString += ' ('
         for (let j = 1; j <= 11; ++j) {
-            valuesString += `$${(11*i) + j}${j === 11 ? '' : ', '}`
+            valuesString += `$${11 * i + j}${j === 11 ? '' : ', '}`
         }
-        valuesString += `)${i === (payload.batch.length - 1) ? '' : ','}`
+        valuesString += `)${i === payload.batch.length - 1 ? '' : ','}`
         values = [
             ...values,
             ...[uuid, eventName, properties, elements, set, set_once, distinct_id, team_id, ip, site_url, timestamp],
         ]
     }
 
-    console.log(`Flushing ${payload.batch.length} events`)
-    
+    console.log(
+        `(Batch Id: ${payload.batchId}) Flushing ${payload.batch.length} event${payload.batch.length > 1 ? 's' : ''}`
+    )
+
     await executeQuery(
         `INSERT INTO ${global.sanitizedTableName} (uuid, event, properties, elements, set, set_once, distinct_id, team_id, ip, site_url, timestamp)
         VALUES ${valuesString}`,
@@ -213,7 +215,7 @@ const executeQuery = async (
         database: config.dbName,
         port: parseInt(config.clusterPort),
     })
-/*     const q = query.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))
+    /*     const q = query.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))
     console.log(q) */
     await pgClient.connect()
     try {
