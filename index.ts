@@ -161,7 +161,7 @@ export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { globa
             payload.batch[i]
         valuesString += ' ('
         for (let j = 1; j <= 11; ++j) {
-            valuesString += `$${(11*i) + j}${j === 11 ? '' : ','}`
+            valuesString += `$${(11*i) + j}${j === 11 ? '' : ', '}`
         }
         valuesString += `)${i === payload.batch.length ? '' : ','}`
         values = [
