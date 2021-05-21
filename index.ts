@@ -93,7 +93,7 @@ export const setupPlugin: RedshiftPlugin['setupPlugin'] = async (meta) => {
 
     global.buffer = createBuffer({
         limit: uploadMegabytes * 1024 * 1024,
-        timeoutSeconds: uploadMinutes, // here
+        timeoutSeconds: uploadMinutes * 60, 
         onFlush: async (batch) => {
             await insertBatchIntoRedshift(
                 { batch, batchId: Math.floor(Math.random() * 1000000), retriesPerformedSoFar: 0 },
