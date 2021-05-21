@@ -156,7 +156,7 @@ export async function onEvent(event: PluginEvent, { global }: RedshiftMeta) {
 export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { global, jobs, config }: RedshiftMeta) => {
     let values: InsertQueryValue[] = []
     let valuesString = ''
-    for (let i = 0; i <= payload.batch.length; ++i) {
+    for (let i = 0; i < payload.batch.length; ++i) {
         const { uuid, eventName, properties, elements, set, set_once, distinct_id, team_id, ip, site_url, timestamp } =
             payload.batch[i]
         valuesString += ' ('
@@ -170,6 +170,8 @@ export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { globa
         ]
     }
 
+    console.log(`Flushing ${payload.batch.length} events`)
+    
     await executeQuery(
         `INSERT INTO ${global.sanitizedTableName} (uuid, event, properties, elements, set, set_once, distinct_id, team_id, ip, site_url, timestamp)
         VALUES ${valuesString}`,
