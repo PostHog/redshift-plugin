@@ -62,6 +62,10 @@ export const setupPlugin: RedshiftPlugin['setupPlugin'] = async (meta) => {
         }
     }
 
+    if (!config.clusterHost.endsWith('redshift.amazonaws.com')) {
+        throw new Error('Cluster host must be a valid AWS Redshift host')
+    }
+
     // Max Redshift insert is 16 MB: https://docs.aws.amazon.com/redshift/latest/dg/c_redshift-sql.html
     const uploadMegabytes = Math.max(1, Math.min(parseInt(config.uploadMegabytes) || 1, 10))
     const uploadMinutes = Math.max(1, Math.min(parseInt(config.uploadMinutes) || 1, 60))
