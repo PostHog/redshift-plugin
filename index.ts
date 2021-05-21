@@ -163,7 +163,7 @@ export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { globa
         for (let j = 1; j <= 11; ++j) {
             valuesString += `$${(11*i) + j}${j === 11 ? '' : ', '}`
         }
-        valuesString += `)${i === payload.batch.length ? '' : ','}`
+        valuesString += `)${i === (payload.batch.length - 1) ? '' : ','}`
         values = [
             ...values,
             ...[uuid, eventName, properties, elements, set, set_once, distinct_id, team_id, ip, site_url, timestamp],
@@ -213,8 +213,8 @@ const executeQuery = async (
         database: config.dbName,
         port: parseInt(config.clusterPort),
     })
-    const q = query.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))
-    console.log(q)
+/*     const q = query.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))
+    console.log(q) */
     await pgClient.connect()
     try {
         await pgClient.query(query, values)
