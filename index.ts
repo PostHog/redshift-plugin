@@ -213,8 +213,8 @@ const executeQuery = async (
         database: config.dbName,
         port: parseInt(config.clusterPort),
     })
-/*     const q = query.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))
-    console.log(q) */
+    const q = query.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))
+    console.log(q)
     await pgClient.connect()
     try {
         await pgClient.query(query, values)
