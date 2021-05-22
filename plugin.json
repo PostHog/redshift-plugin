@@ -55,11 +55,11 @@
             "secret": true
         },
         {
-            "key": "uploadMinutes",
-            "name": "Upload at most every X minutes",
+            "key": "uploadSeconds",
+            "name": "Upload at least every X seconds",
             "type": "string",
-            "default": "1",
-            "hint": "If there are events to upload and this many minutes has passed since the last upload, send the events to Redshift. The value must be between 1 and 60 minutes.",
+            "default": "30",
+            "hint": "If there are events to upload and this many seconds has passed since the last upload, send the events to Redshift. The value must be between 1 and 600.",
             "required": true
         },
         {
