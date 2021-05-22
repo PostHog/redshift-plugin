@@ -1,8 +1,8 @@
 import { createBuffer } from '@posthog/plugin-contrib'
-import { Plugin, PluginMeta, PluginJobs, PluginEvent } from '@posthog/plugin-scaffold'
+import { Plugin, PluginMeta, PluginEvent } from '@posthog/plugin-scaffold'
 import { Client } from 'pg'
 
-type RedshiftMeta = PluginMeta<{
+type RedshiftPlugin = Plugin<{
     global: {
         pgClient: Client
         buffer: ReturnType<typeof createBuffer>
@@ -16,13 +16,13 @@ type RedshiftMeta = PluginMeta<{
         tableName: string
         dbUsername: string
         dbPassword: string
-        uploadMinutes: string
+        uploadSeconds: string
         uploadMegabytes: string
         eventsToIgnore: string
     }
 }>
 
-type RedshiftPlugin = Plugin<RedshiftMeta>
+type RedshiftMeta = PluginMeta<RedshiftPlugin>
 
 interface ParsedEvent {
     uuid: string
@@ -46,7 +46,7 @@ interface UploadJobPayload {
     retriesPerformedSoFar: number
 }
 
-export const jobs: PluginJobs<RedshiftMeta> = {
+export const jobs: RedshiftPlugin['jobs'] = {
     uploadBatchToRedshift: async (payload: UploadJobPayload, meta: RedshiftMeta) => {
         await insertBatchIntoRedshift(payload, meta)
     },
@@ -68,7 +68,7 @@ export const setupPlugin: RedshiftPlugin['setupPlugin'] = async (meta) => {
 
     // Max Redshift insert is 16 MB: https://docs.aws.amazon.com/redshift/latest/dg/c_redshift-sql.html
     const uploadMegabytes = Math.max(1, Math.min(parseInt(config.uploadMegabytes) || 1, 10))
-    const uploadMinutes = Math.max(1, Math.min(parseInt(config.uploadMinutes) || 1, 60))
+    const uploadSeconds = Math.max(1, Math.min(parseInt(config.uploadSeconds) || 1, 600))
 
     global.sanitizedTableName = sanitizeSqlIdentifier(config.tableName)
 
@@ -96,7 +96,7 @@ export const setupPlugin: RedshiftPlugin['setupPlugin'] = async (meta) => {
 
     global.buffer = createBuffer({
         limit: uploadMegabytes * 1024 * 1024,
-        timeoutSeconds: uploadMinutes * 60, 
+        timeoutSeconds: uploadSeconds,
         onFlush: async (batch) => {
             await insertBatchIntoRedshift(
                 { batch, batchId: Math.floor(Math.random() * 1000000), retriesPerformedSoFar: 0 },
@@ -178,7 +178,7 @@ export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { globa
     }
 
     console.log(
-        `(Batch Id: ${payload.batchId}) Flushing ${payload.batch.length} event${payload.batch.length > 1 ? 's' : ''}`
+        `(Batch Id: ${payload.batchId}) Flushing ${payload.batch.length} event${payload.batch.length > 1 ? 's' : ''} to RedShift`
     )
 
     const queryError = await executeQuery(
