@@ -1,6 +1,6 @@
 {
     "name": "Redshift Export Plugin",
-    "url": "https://github.com/posthog/s3-export-plugin",
+    "url": "https://github.com/posthog/redshift-plugin",
     "description": "Export PostHog events to Amazon Redshift on ingestion.",
     "main": "index.ts",
     "posthogVersion": ">= 1.24.0",
