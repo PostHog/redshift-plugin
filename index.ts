@@ -237,5 +237,5 @@ export const teardownPlugin: RedshiftPlugin['teardownPlugin'] = ({ global }) => 
 }
 
 const sanitizeSqlIdentifier = (unquotedIdentifier: string): string => {
-    return unquotedIdentifier.replace(/[^\w\d_]+/g, '')
+    return unquotedIdentifier.replace(/[^\w\d_.]+/g, '')
 }
