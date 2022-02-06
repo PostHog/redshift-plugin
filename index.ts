@@ -164,7 +164,7 @@ export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { globa
         const { uuid, eventName, properties, elements, set, set_once, distinct_id, team_id, ip, site_url, timestamp } =
             payload.batch[i]
 
-        // Creates format: ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11), ($12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22) 
+        // Creates format: ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11), ($12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
         valuesString += ' ('
         for (let j = 1; j <= 11; ++j) {
             valuesString += `$${11 * i + j}${j === 11 ? '' : ', '}`
@@ -178,7 +178,9 @@ export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { globa
     }
 
     console.log(
-        `(Batch Id: ${payload.batchId}) Flushing ${payload.batch.length} event${payload.batch.length > 1 ? 's' : ''} to RedShift`
+        `(Batch Id: ${payload.batchId}) Flushing ${payload.batch.length} event${
+            payload.batch.length > 1 ? 's' : ''
+        } to RedShift`
     )
 
     const queryError = await executeQuery(
@@ -204,12 +206,7 @@ export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { globa
     }
 }
 
-const executeQuery = async (
-    query: string,
-    values: any[],
-    config: RedshiftMeta['config']
-): Promise<Error | null> => {
-
+const executeQuery = async (query: string, values: any[], config: RedshiftMeta['config']): Promise<Error | null> => {
     const pgClient = new Client({
         user: config.dbUsername,
         password: config.dbPassword,
@@ -218,16 +215,15 @@ const executeQuery = async (
         port: parseInt(config.clusterPort),
     })
 
-    await pgClient.connect()
-
     let error: Error | null = null
     try {
+        await pgClient.connect()
         await pgClient.query(query, values)
     } catch (err) {
         error = err
+    } finally {
+        await pgClient.end()
     }
-
-    await pgClient.end()
 
     return error
 }
