@@ -164,7 +164,7 @@ export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { globa
     let valuesString = ''
 
 
-    const getPropsInsertString(stringifiedValue: string) {
+    function getPropsInsertString(stringifiedValue: string) {
         return config.propertiesDataType === 'super' ? `JSON_PARSE(${stringifiedValue})` : stringifiedValue
     }
 
@@ -228,7 +228,7 @@ const executeQuery = async (query: string, values: any[], config: RedshiftMeta['
         await pgClient.connect()
         await pgClient.query(query, values)
     } catch (err) {
-        error = err
+        error = err as Error
     } finally {
         await pgClient.end()
     }
