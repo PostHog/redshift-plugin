@@ -1,5 +1,5 @@
 import { createBuffer } from '@posthog/plugin-contrib'
-import { Plugin, PluginMeta, PluginEvent } from '@posthog/plugin-scaffold'
+import { Plugin, PluginMeta, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { Client } from 'pg'
 
 type RedshiftPlugin = Plugin<{
@@ -113,7 +113,7 @@ export const setupPlugin: RedshiftPlugin['setupPlugin'] = async (meta) => {
     )
 }
 
-export async function onEvent(event: PluginEvent, { global }: RedshiftMeta) {
+export async function onEvent(event: ProcessedPluginEvent, { global }: RedshiftMeta) {
     const {
         event: eventName,
         properties,
@@ -121,15 +121,12 @@ export async function onEvent(event: PluginEvent, { global }: RedshiftMeta) {
         $set_once,
         distinct_id,
         team_id,
-        site_url,
-        now,
-        sent_at,
         uuid,
+        timestamp,
         ..._discard
     } = event
 
     const ip = properties?.['$ip'] || event.ip
-    const timestamp = event.timestamp || properties?.timestamp || now || sent_at
     let ingestedProperties = properties
     let elements = []
 
@@ -150,7 +147,7 @@ export async function onEvent(event: PluginEvent, { global }: RedshiftMeta) {
         distinct_id,
         team_id,
         ip,
-        site_url,
+        site_url: '',
         timestamp: new Date(timestamp).toISOString(),
     }
 
