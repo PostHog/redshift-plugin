@@ -165,7 +165,7 @@ export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { globa
 
 
     const getPropsInsertString(stringifiedValue: string) {
-        return config.propertiesDataType === 'varchar' ? stringifiedValue : `JSON_PARSE(${stringifiedValue})`
+        return config.propertiesDataType === 'super' ? `JSON_PARSE(${stringifiedValue})` : stringifiedValue
     }
 
     for (let i = 0; i < payload.batch.length; ++i) {
