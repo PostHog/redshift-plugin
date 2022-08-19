@@ -114,17 +114,7 @@ export const setupPlugin: RedshiftPlugin['setupPlugin'] = async (meta) => {
 }
 
 export async function onEvent(event: ProcessedPluginEvent, { global }: RedshiftMeta) {
-    const {
-        event: eventName,
-        properties,
-        $set,
-        $set_once,
-        distinct_id,
-        team_id,
-        uuid,
-        timestamp,
-        ..._discard
-    } = event
+    const { event: eventName, properties, $set, $set_once, distinct_id, team_id, uuid, timestamp, ..._discard } = event
 
     const ip = properties?.['$ip'] || event.ip
     let ingestedProperties = properties
@@ -160,7 +150,6 @@ export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { globa
     let values: InsertQueryValue[] = []
     let valuesString = ''
 
-
     function getPropsInsertString(stringifiedValue: string) {
         return config.propertiesDataType === 'super' ? `JSON_PARSE(${stringifiedValue})` : stringifiedValue
     }
@@ -178,7 +167,19 @@ export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { globa
 
         values = [
             ...values,
-            ...[uuid, eventName, getPropsInsertString(properties), elements, getPropsInsertString(set), getPropsInsertString(set_once), distinct_id, team_id, ip, site_url, timestamp],
+            ...[
+                uuid,
+                eventName,
+                getPropsInsertString(properties),
+                elements,
+                getPropsInsertString(set),
+                getPropsInsertString(set_once),
+                distinct_id,
+                team_id,
+                ip,
+                site_url,
+                timestamp,
+            ],
         ]
     }
 
