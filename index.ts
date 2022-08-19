@@ -19,6 +19,7 @@ type RedshiftPlugin = Plugin<{
         uploadSeconds: string
         uploadMegabytes: string
         eventsToIgnore: string
+        propertiesDataType: string
     }
 }>
 
@@ -72,14 +73,16 @@ export const setupPlugin: RedshiftPlugin['setupPlugin'] = async (meta) => {
 
     global.sanitizedTableName = sanitizeSqlIdentifier(config.tableName)
 
+    const propertiesDataType = config.propertiesDataType === 'varchar' ? 'varchar(65535)' : 'super'
+
     const queryError = await executeQuery(
         `CREATE TABLE IF NOT EXISTS public.${global.sanitizedTableName} (
             uuid varchar(200),
             event varchar(200),
-            properties varchar(65535),
+            properties ${propertiesDataType},
             elements varchar(65535),
-            set varchar(65535),
-            set_once varchar(65535),
+            set ${propertiesDataType},
+            set_once ${propertiesDataType},
             timestamp timestamp with time zone,
             team_id int,
             distinct_id varchar(200),
@@ -160,6 +163,11 @@ export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { globa
     let values: InsertQueryValue[] = []
     let valuesString = ''
 
+
+    const getPropsInsertString(stringifiedValue: string) {
+        return config.propertiesDataType === 'super' ? `JSON_PARSE(${stringifiedValue})` : stringifiedValue
+    }
+
     for (let i = 0; i < payload.batch.length; ++i) {
         const { uuid, eventName, properties, elements, set, set_once, distinct_id, team_id, ip, site_url, timestamp } =
             payload.batch[i]
@@ -173,7 +181,7 @@ export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { globa
 
         values = [
             ...values,
-            ...[uuid, eventName, properties, elements, set, set_once, distinct_id, team_id, ip, site_url, timestamp],
+            ...[uuid, eventName, getPropsInsertString(properties), elements, getPropsInsertString(set), getPropsInsertString(set_once), distinct_id, team_id, ip, site_url, timestamp],
         ]
     }
 

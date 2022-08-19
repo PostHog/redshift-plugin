@@ -76,6 +76,14 @@
             "type": "string",
             "default": "$feature_flag_called",
             "hint": "Comma separated list of events to ignore"
+        },
+        {
+            "key": "propertiesDataType",
+            "name": "Data type to store properties",
+            "type": "choice",
+            "choices": ["varchar", "super"],
+            "default": "varchar",
+            "hint": "ADVANCED"
         }
     ]
 }
