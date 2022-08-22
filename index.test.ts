@@ -1,4 +1,4 @@
-import { insertBatchIntoRedshift, onEvent } from './index'
+import { insertBatchIntoRedshift, exportEvents, parseEvent } from './index'
 
 const mockedPgClient = {
     connect: jest.fn(),
@@ -36,39 +36,35 @@ describe('Redshift Export Plugin', () => {
 
     describe('insertBatchIntoRedshift()', () => {
         test('inserts data into redshift', async () => {
-            const payload = {
-                batch: [
-                    {
-                        eventName: 'test',
-                        properties: '{}',
-                        distinct_id: 'did1',
-                        team_id: 1,
-                        uuid: '37114ebb-7b13-4301-b849-0d0bd4d5c7e5',
-                        ip: '127.0.0.1',
-                        timestamp: '2022-08-18T15:42:32.597Z',
-                        set: '{}',
-                        set_once: '{}',
-                        elements: '',
-                        site_url: '',
-                    },
-                    {
-                        eventName: 'test2',
-                        properties: '{}',
-                        distinct_id: 'did1',
-                        team_id: 1,
-                        uuid: '37114ebb-7b13-4301-b859-0d0bd4d5c7e5',
-                        ip: '127.0.0.1',
-                        timestamp: '2022-08-18T15:42:32.597Z',
-                        set: '{}',
-                        set_once: '{}',
-                        elements: '',
-                        site_url: '',
-                    },
-                ],
-                batchId: 1234,
-                retriesPerformedSoFar: 0,
-            }
-            await insertBatchIntoRedshift(payload, mockedMeta)
+            const events = [
+                {
+                    eventName: 'test',
+                    properties: '{}',
+                    distinct_id: 'did1',
+                    team_id: 1,
+                    uuid: '37114ebb-7b13-4301-b849-0d0bd4d5c7e5',
+                    ip: '127.0.0.1',
+                    timestamp: '2022-08-18T15:42:32.597Z',
+                    set: '{}',
+                    set_once: '{}',
+                    elements: '',
+                    site_url: '',
+                },
+                {
+                    eventName: 'test2',
+                    properties: '{}',
+                    distinct_id: 'did1',
+                    team_id: 1,
+                    uuid: '37114ebb-7b13-4301-b859-0d0bd4d5c7e5',
+                    ip: '127.0.0.1',
+                    timestamp: '2022-08-18T15:42:32.597Z',
+                    set: '{}',
+                    set_once: '{}',
+                    elements: '',
+                    site_url: '',
+                },
+            ]
+            await insertBatchIntoRedshift(events, mockedMeta)
 
             expect(mockedPgClient.query).toHaveBeenCalledWith(
                 `INSERT INTO my_table (uuid, event, properties, elements, set, set_once, distinct_id, team_id, ip, site_url, timestamp)
@@ -101,8 +97,8 @@ describe('Redshift Export Plugin', () => {
         })
     })
 
-    describe('onEvent()', () => {
-        test('parses events and adds to buffer', () => {
+    describe('parseEvent()', () => {
+        test('converts ProcessedPluginEvent to ParsedEvent', () => {
             const event = {
                 event: 'test',
                 properties: { foo: 'bar' },
@@ -113,20 +109,20 @@ describe('Redshift Export Plugin', () => {
                 timestamp: '2022-08-18T15:42:32.597Z',
             }
 
-            onEvent(event, mockedMeta)
+            const parsedEvent = parseEvent(event)
 
-            expect(mockedMeta.global.buffer.add).toHaveBeenCalledWith({
-                distinct_id: "did1",
-                elements: "[]",
-                eventName: "test",
-                ip: "127.0.0.1",
-                properties: "{\"foo\":\"bar\"}",
-                set: "{}",
-                set_once: "{}",
-                site_url: "",
+            expect(parsedEvent).toEqual({
+                distinct_id: 'did1',
+                elements: '[]',
+                eventName: 'test',
+                ip: '127.0.0.1',
+                properties: '{"foo":"bar"}',
+                set: '{}',
+                set_once: '{}',
+                site_url: '',
                 team_id: 1,
-                timestamp: "2022-08-18T15:42:32.597Z",
-                uuid: "37114ebb-7b13-4301-b849-0d0bd4d5c7e5",
+                timestamp: '2022-08-18T15:42:32.597Z',
+                uuid: '37114ebb-7b13-4301-b849-0d0bd4d5c7e5',
             })
         })
     })
