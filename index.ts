@@ -1,5 +1,5 @@
 import { createBuffer } from '@posthog/plugin-contrib'
-import { Plugin, PluginMeta, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { Plugin, PluginMeta, ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 import { Client } from 'pg'
 
 type RedshiftPlugin = Plugin<{
@@ -40,18 +40,6 @@ interface ParsedEvent {
 }
 
 type InsertQueryValue = string | number
-
-interface UploadJobPayload {
-    batch: ParsedEvent[]
-    batchId: number
-    retriesPerformedSoFar: number
-}
-
-export const jobs: RedshiftPlugin['jobs'] = {
-    uploadBatchToRedshift: async (payload: UploadJobPayload, meta: RedshiftMeta) => {
-        await insertBatchIntoRedshift(payload, meta)
-    },
-}
 
 export const setupPlugin: RedshiftPlugin['setupPlugin'] = async (meta) => {
     const { global, config } = meta
@@ -97,23 +85,19 @@ export const setupPlugin: RedshiftPlugin['setupPlugin'] = async (meta) => {
         throw new Error(`Unable to connect to Redshift cluster and create table with error: ${queryError.message}`)
     }
 
-    global.buffer = createBuffer({
-        limit: uploadMegabytes * 1024 * 1024,
-        timeoutSeconds: uploadSeconds,
-        onFlush: async (batch) => {
-            await insertBatchIntoRedshift(
-                { batch, batchId: Math.floor(Math.random() * 1000000), retriesPerformedSoFar: 0 },
-                meta
-            )
-        },
-    })
-
     global.eventsToIgnore = new Set(
         config.eventsToIgnore ? config.eventsToIgnore.split(',').map((event) => event.trim()) : null
     )
 }
 
-export async function onEvent(event: ProcessedPluginEvent, { global }: RedshiftMeta) {
+export async function exportEvents(events: ProcessedPluginEvent[], meta: RedshiftMeta) {
+    const eventsToExport = events.filter((event) => !meta.global.eventsToIgnore.has(event.event))
+    const parsedEvents = eventsToExport.map(parseEvent)
+
+    await insertBatchIntoRedshift(parsedEvents, meta)
+}
+
+export const parseEvent = (event: ProcessedPluginEvent): ParsedEvent => {
     const { event: eventName, properties, $set, $set_once, distinct_id, team_id, uuid, timestamp, ..._discard } = event
 
     const ip = properties?.['$ip'] || event.ip
@@ -141,12 +125,10 @@ export async function onEvent(event: ProcessedPluginEvent, { global }: RedshiftM
         timestamp: new Date(timestamp).toISOString(),
     }
 
-    if (!global.eventsToIgnore.has(eventName)) {
-        global.buffer.add(parsedEvent)
-    }
+    return parsedEvent
 }
 
-export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { global, jobs, config }: RedshiftMeta) => {
+export const insertBatchIntoRedshift = async (events: ParsedEvent[], { global, config }: RedshiftMeta) => {
     let values: InsertQueryValue[] = []
     let valuesString = ''
 
@@ -154,16 +136,16 @@ export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { globa
         return config.propertiesDataType === 'super' ? `JSON_PARSE(${stringifiedValue})` : stringifiedValue
     }
 
-    for (let i = 0; i < payload.batch.length; ++i) {
+    for (let i = 0; i < events.length; ++i) {
         const { uuid, eventName, properties, elements, set, set_once, distinct_id, team_id, ip, site_url, timestamp } =
-            payload.batch[i]
+            events[i]
 
         // Creates format: ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11), ($12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
         valuesString += ' ('
         for (let j = 1; j <= 11; ++j) {
             valuesString += `$${11 * i + j}${j === 11 ? '' : ', '}`
         }
-        valuesString += `)${i === payload.batch.length - 1 ? '' : ','}`
+        valuesString += `)${i === events.length - 1 ? '' : ','}`
 
         values = [
             ...values,
@@ -183,11 +165,7 @@ export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { globa
         ]
     }
 
-    console.log(
-        `(Batch Id: ${payload.batchId}) Flushing ${payload.batch.length} event${
-            payload.batch.length > 1 ? 's' : ''
-        } to RedShift`
-    )
+    console.log(`Flushing ${events.length} event${events.length > 1 ? 's' : ''} to RedShift`)
 
     const queryError = await executeQuery(
         `INSERT INTO ${global.sanitizedTableName} (uuid, event, properties, elements, set, set_once, distinct_id, team_id, ip, site_url, timestamp)
@@ -197,18 +175,8 @@ export const insertBatchIntoRedshift = async (payload: UploadJobPayload, { globa
     )
 
     if (queryError) {
-        console.error(`(Batch Id: ${payload.batchId}) Error uploading to Redshift: ${queryError.message}`)
-        if (payload.retriesPerformedSoFar >= 15) {
-            return
-        }
-        const nextRetryMs = 2 ** payload.retriesPerformedSoFar * 3000
-        console.log(`Enqueued batch ${payload.batchId} for retry in ${nextRetryMs}ms`)
-        await jobs
-            .uploadBatchToRedshift({
-                ...payload,
-                retriesPerformedSoFar: payload.retriesPerformedSoFar + 1,
-            })
-            .runIn(nextRetryMs, 'milliseconds')
+        console.error(`Error uploading to Redshift: ${queryError.message}. Setting up retries...`)
+        throw new RetryError()
     }
 }
 
