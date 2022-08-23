@@ -92,7 +92,7 @@ export const setupPlugin: RedshiftPlugin['setupPlugin'] = async (meta) => {
 
 export async function exportEvents(events: ProcessedPluginEvent[], meta: RedshiftMeta) {
     const eventsToExport = events.filter((event) => !meta.global.eventsToIgnore.has(event.event))
-    const parsedEvents = eventsToExport.map((event) => parseEvent(event))
+    const parsedEvents = eventsToExport.map(parseEvent)
 
     await insertBatchIntoRedshift(parsedEvents, meta)
 }
